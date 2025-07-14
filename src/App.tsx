@@ -1,39 +1,7 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Camera, QrCode, Download, Upload, Copy, Check, AlertCircle } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { Camera, QrCode, Download, Copy, Check, AlertCircle } from 'lucide-react';
 import QRCode from 'qrcode';
 import QrScanner from 'qr-scanner';
-
-// function encode(str: string): Uint8Array {
-//   const bytes = new Uint8Array(200);
-//   for (let i = 0; i < 200; i++) {
-//     bytes[i] = Math.floor(Math.random() * 256);
-//   }
-//   return bytes;
-// }
-
-// function decode(bytes: Uint8Array): string {
-//   return "dummy decrypted string";
-// }
-
-function encode(str: string): string {
-  const bytes = new Uint8Array(200);
-  for (let i = 0; i < 200; i++) {
-    bytes[i] = Math.floor(Math.random() * 256);
-  }
-  
-  // Convert bytes directly to string (1:1 mapping)
-  return String.fromCharCode(...bytes);
-}
-
-function decode(binaryString: string): string {
-  // Convert string back to bytes
-  const bytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  
-  return "dummy decrypted string";
-}
 
 function App() {
   const [descriptorInput, setDescriptorInput] = useState('');
@@ -46,7 +14,7 @@ function App() {
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const qrScannerRef = useRef<QrScanner | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const decodedTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   const generateQRCode = async () => {
     if (!descriptorInput.trim()) {
@@ -56,10 +24,9 @@ function App() {
 
     try {
       setError('');
-      const encodeedData = encode(descriptorInput);
-      // @ts-ignore - qrcode types expect string but we need binary data
+      const encodedData = window.wasm.encode(descriptorInput);    
       const dataUrl = await QRCode.toDataURL(
-        encodeedData,
+        String.fromCharCode(...encodedData),
         {
         errorCorrectionLevel: 'L',
         type: 'image/png',
@@ -75,7 +42,7 @@ function App() {
       setQrDataUrl(dataUrl);
       setSuccess('QR code generated successfully!');
     } catch (err) {
-      setError('Failed to generate QR code. Please check your descriptor format:' + err.toString());
+      setError('Failed to generate QR code. Please check your descriptor format (' + err.toString() + ')');
     }
   };
 
@@ -100,28 +67,24 @@ function App() {
         qrScannerRef.current = new QrScanner(
           videoRef.current,
           (result) => {
-            try {
-              console.log('Scanned result:', result);
-              
-              // Try to decode the result
-              let decodeedData = result.data;
-              
-              // If the result contains binary data, try to decode it
-              if (result.data && typeof result.data === 'string') {
-                try {
-                  // Try to parse
-                  decodeedData = decode(result.data);
-                } catch (decodeError) {
-                  console.error('decode error:', decodeError);
-                }
+            try {              
+              if (!window.wasm) {
+                throw new Error('WASM module is not ready');
               }
               
-              setScannedDescriptor(decodeedData);
+              const binaryString = result.data;
+              const bytes = new Uint8Array(binaryString.length);
+              for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+              }
+              
+              const decodedData = window.wasm.decode(bytes);
+              setScannedDescriptor(decodedData);
               setSuccess('QR code scanned successfully!');
               stopScanning();
             } catch (err) {
               console.error('Error processing scanned result:', err);
-              setError('Failed to process scanned QR code');
+              setError('Failed to decode scanned QR code');
             }
           },
           {
@@ -177,6 +140,19 @@ function App() {
     setSuccess('');
   };
 
+  // Auto-resize textarea
+  const adjustTextareaHeight = () => {
+    if (decodedTextareaRef.current) {
+      decodedTextareaRef.current.style.height = 'auto';
+      const newHeight = decodedTextareaRef.current.scrollHeight;
+      decodedTextareaRef.current.style.height = `${newHeight}px`;
+    }
+  };
+
+  useEffect(() => {
+    adjustTextareaHeight();
+  }, [scannedDescriptor]);
+
   useEffect(() => {
     return () => {
       if (qrScannerRef.current) {
@@ -197,7 +173,7 @@ function App() {
               <h1 className="text-3xl font-bold text-gray-800">Bitcoin Descriptor QR</h1>
             </div>
             <p className="text-gray-600">
-              Turn your Bitcoin output descriptor into QR codes for secure storage and easy sharing
+              Turn your Bitcoin output descriptor into a QR code for secure storage and easy sharing
             </p>
           </div>
 
@@ -241,7 +217,7 @@ function App() {
                   <textarea
                     value={descriptorInput}
                     onChange={(e) => setDescriptorInput(e.target.value)}
-                    placeholder="Enter your Bitcoin output descriptor here..."
+                    placeholder="Enter your Bitcoin output descriptor..."
                     className="w-full h-24 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-colors resize-none"
                   />
                 </div>
@@ -317,13 +293,15 @@ function App() {
                   <div className="mt-6 space-y-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Decoded Text
+                        Decoded Descriptor
                       </label>
                       <div className="relative">
                         <textarea
+                          ref={decodedTextareaRef}
                           value={scannedDescriptor}
                           readOnly
-                          className="w-full h-32 px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 resize-none font-mono text-sm"
+                          className="w-full min-h-[3rem] max-h-[12.5rem] px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 font-mono text-sm overflow-y-auto resize-none"
+                          style={{ height: 'auto' }}
                         />
                         <button
                           onClick={() => copyToClipboard(scannedDescriptor)}
@@ -333,7 +311,7 @@ function App() {
                         </button>
                       </div>
                       <p className="text-xs text-gray-500 mt-1">
-                        Raw decoded text from QR code • Click copy button to copy to clipboard
+                        Decoded from QR code • Click copy button to copy to clipboard
                       </p>
                     </div>
                   </div>
@@ -346,7 +324,7 @@ function App() {
           <div className="mt-12 text-center text-gray-500 text-sm">
             <p>
               Secure Bitcoin descriptor storage and sharing • 
-              <span className="text-orange-500 font-medium"> Always verify your descriptors before use</span>
+              <span className="text-orange-500 font-medium"> Your data never leaves your device </span>
             </p>
           </div>
         </div>

@@ -10,5 +10,25 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <script type="module">
+      import init, { encode, decode } from './node_modules/descriptor-codec-wasm/descriptor_codec_wasm.js';
+      
+      async function initWasm() {
+        try {
+          console.log('Initializing WASM...');
+          await init();
+          
+          window.wasm = { encode, decode };
+          window.dispatchEvent(new CustomEvent('wasmReady'));
+          
+          console.log('✅ WASM ready:', window.wasm);
+        } catch (error) {
+          console.error('❌ WASM initialization failed:', error);
+          window.dispatchEvent(new CustomEvent('wasmError', { detail: error }));
+        }
+      }
+      
+      initWasm();
+    </script>
   </body>
 </html>
